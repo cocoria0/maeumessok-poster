@@ -1,20 +1,30 @@
-"""스레드 예약 게시: threads_posts.json 에서 시간(한국시간)이 지난 것 하나를 글로 올린다.
-항목: {"id": "w1-am", "text": "...", "at": "2026-10-19 21:00", "done": null, "post_id": null}
-실패하면 error 를 적고 done 처리(같은 글을 계속 재시도하지 않음)."""
+"""스레드 예약 게시: threads_posts.json 에서 시간(한국시간)이 지난 것 하나를 올린다.
+항목: {"id": "w1-am", "text": "...", "image": "threads_img/01.jpg" 또는 "video": "videos/025.mp4",
+       "at": "2026-10-19 21:00", "done": null, "post_id": null}
+★ 사진이나 영상이 없는 항목은 올리지 않는다(글만 올리지 않기 — 운영 규칙). 실패하면 error 를 적고 done 처리."""
 import datetime as dt, json, os, time, urllib.parse, urllib.request
 
 TOK = os.environ["THREADS_TOKEN"]
 UID = os.environ["THREADS_USER_ID"]
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+REPO = os.environ.get("GITHUB_REPOSITORY", "")
 G = "https://graph.threads.net/v1.0"
 
 
-def api(path, data):
-    req = urllib.request.Request(f"{G}/{path}", data=urllib.parse.urlencode({**data, "access_token": TOK}).encode())
+def api(path, data=None):
+    if data is None:
+        url = f"{G}/{path}{'&' if '?' in path else '?'}access_token={TOK}"
+        req = urllib.request.Request(url)
+    else:
+        req = urllib.request.Request(f"{G}/{path}", data=urllib.parse.urlencode({**data, "access_token": TOK}).encode())
     try:
         return json.load(urllib.request.urlopen(req, timeout=60))
     except urllib.error.HTTPError as e:
         raise RuntimeError(f"Threads API {e.code}: {e.read().decode('utf-8', 'ignore')[:300]}")
+
+
+def raw(path):
+    return f"https://raw.githubusercontent.com/{REPO}/main/{urllib.parse.quote(path)}"
 
 
 p = os.path.join(ROOT, "threads_posts.json")
@@ -24,8 +34,20 @@ for x in posts:
     if x.get("done") or x["at"] > now:
         continue
     try:
-        cid = api(f"{UID}/threads", {"media_type": "TEXT", "text": x["text"]})["id"]
-        time.sleep(5)
+        if x.get("video"):
+            body = {"media_type": "VIDEO", "video_url": raw(x["video"]), "text": x["text"]}
+        elif x.get("image"):
+            body = {"media_type": "IMAGE", "image_url": raw(x["image"]), "text": x["text"]}
+        else:
+            raise RuntimeError("사진·영상 없음 — 글만은 올리지 않음")
+        cid = api(f"{UID}/threads", body)["id"]
+        for _ in range(60):                      # 영상은 처리 시간이 걸린다
+            st = api(f"{cid}?fields=status,error_message")
+            if st.get("status") == "FINISHED":
+                break
+            if st.get("status") == "ERROR":
+                raise RuntimeError("처리 실패: " + str(st))
+            time.sleep(5)
         pid = api(f"{UID}/threads_publish", {"creation_id": cid})["id"]
         x.update(done=now, post_id=pid)
         print(now, "스레드 게시:", x["id"], pid)
