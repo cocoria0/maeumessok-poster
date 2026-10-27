@@ -1,5 +1,5 @@
 """스레드 예약 게시: threads_posts.json 에서 시간(한국시간)이 지난 것 하나를 올린다.
-항목: {"id": "w1-am", "text": "...", "image": "threads_img/01.jpg" 또는 "video": "videos/025.mp4",
+항목: {"id": "w1-am", "text": "...", "image": "threads_img/01.jpg" 또는 "video": "videos/025.mp4", "topic": "스킨케어"(주제 태그, 선택),
        "at": "2026-10-19 21:00", "done": null, "post_id": null}
 ★ 사진이나 영상이 없는 항목은 올리지 않는다(글만 올리지 않기 — 운영 규칙). 실패하면 error 를 적고 done 처리."""
 import datetime as dt, json, os, time, urllib.parse, urllib.request
@@ -40,6 +40,8 @@ for x in posts:
             body = {"media_type": "IMAGE", "image_url": raw(x["image"]), "text": x["text"]}
         else:
             raise RuntimeError("사진·영상 없음 — 글만은 올리지 않음")
+        if x.get("topic"):                       # 주제 태그 — 팔로워 없는 계정은 이걸로 노출된다
+            body["topic_tag"] = x["topic"]
         cid = api(f"{UID}/threads", body)["id"]
         for _ in range(60):                      # 영상은 처리 시간이 걸린다
             st = api(f"{cid}?fields=status,error_message")
